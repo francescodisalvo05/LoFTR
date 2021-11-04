@@ -77,7 +77,6 @@ def main():
     config.TRAINER.SCALING = _scaling
     config.TRAINER.TRUE_LR = config.TRAINER.CANONICAL_LR * _scaling
     config.TRAINER.WARMUP_STEP = math.floor(config.TRAINER.WARMUP_STEP / _scaling)
-
     # lightning module
     #
     # Profiling means doing a dynamic analysis that measures the execution time of the program and
@@ -86,7 +85,6 @@ def main():
     profiler = build_profiler(args.profiler_name)
 
     # notice that it is the "lightning" model
-    model = PL_LoFTR(config, pretrained_ckpt=args.ckpt_path, profiler=profiler)
     loguru_logger.info(f"LoFTR LightningModule initialized!")
 
     # lightning data - each training process have assgined only a part of the training scenes to reduce memory overhead.

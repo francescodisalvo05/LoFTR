@@ -84,6 +84,8 @@ def main():
     # everything that compose it.
 
     profiler = build_profiler(args.profiler_name)
+
+    # notice that it is the "lightning" model
     model = PL_LoFTR(config, pretrained_ckpt=args.ckpt_path, profiler=profiler)
     loguru_logger.info(f"LoFTR LightningModule initialized!")
 

@@ -52,6 +52,8 @@ class PL_LoFTR(pl.LightningModule):
         self.dump_dir = dump_dir
         
     def configure_optimizers(self):
+        # Choose what optimizers and learning-rate schedulers to use in your optimization.
+        # https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html#configure-optimizers
         # FIXME: The scheduler did not work properly when `--resume_from_checkpoint`
         optimizer = build_optimizer(self, self.config)
         scheduler = build_scheduler(self.config, optimizer)
@@ -60,9 +62,25 @@ class PL_LoFTR(pl.LightningModule):
     def optimizer_step(
             self, epoch, batch_idx, optimizer, optimizer_idx,
             optimizer_closure, on_tpu, using_native_amp, using_lbfgs):
+        # Override this method to adjust the default way the Trainer calls each optimizer.
+        # https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html#optimizer-step
+
         # learning rate warm up
+
+        # -- Definition : use a very low learning rate for a set number of training steps (warmup steps). After
+        # your warmup steps you use your "regular" learning rate or learning rate scheduler.
+        # https://datascience.stackexchange.com/questions/55991/in-the-context-of-deep-learning-what-is-training-warmup-steps
+
+        # -- why do we use warmup?
+        # At the beginning of training, the weights of the model are randomly initialized. At this time,
+        # if you choose a larger learning rate, it may lead to instability (oscillation) of the model.
+        # Choosing warm-up to warm up the learning rate can make the learning rate of several epochs or
+        # some steps smaller.
+        # https://www.fatalerrors.org/a/basic-knowledge-warm-up-learning-rate.html
+
         warmup_step = self.config.TRAINER.WARMUP_STEP
         if self.trainer.global_step < warmup_step:
+            # "linear" means gradually increase the lr during the warmup
             if self.config.TRAINER.WARMUP_TYPE == 'linear':
                 base_lr = self.config.TRAINER.WARMUP_RATIO * self.config.TRAINER.TRUE_LR
                 lr = base_lr + \

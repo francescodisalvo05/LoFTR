@@ -19,7 +19,7 @@ def parse_args():
     parser.add_argument(
         'main_cfg_path', type=str, help='main config path')
     parser.add_argument(
-        '--ckpt_path', type=str, default="weights/indoor_ds.ckpt", help='path to the checkpoint')
+        '--ckpt_path', type=str, default="weights/indoor_ds_new.ckpt", help='path to the checkpoint')
     parser.add_argument(
         '--dump_dir', type=str, default=None, help="if set, the matching results will be dump to dump_dir")
     parser.add_argument(

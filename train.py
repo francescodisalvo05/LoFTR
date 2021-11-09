@@ -70,7 +70,7 @@ def main():
 
         # scale lr and warmup-step automatically
         # deal with multiple GPUs
-        args.gpus = _n_gpus = setup_gpus(args.gpus)
+        args.gpus = _n_gpus = setup_gpus(1) # I am currently working on Colab
         config.TRAINER.WORLD_SIZE = _n_gpus * args.num_nodes
         config.TRAINER.TRUE_BATCH_SIZE = config.TRAINER.WORLD_SIZE * args.batch_size
         _scaling = config.TRAINER.TRUE_BATCH_SIZE / config.TRAINER.CANONICAL_BS

@@ -104,7 +104,7 @@ cd demo
   # input=/home/sunjiaming/Downloads/scannet_test/$scene_name.mp4
 
   # Toggle indoor/outdoor model here.
-  model_ckpt=../weights/indoor_ds.ckpt
+  model_ckpt=../weights/indoor_ds_new.ckpt
   # model_ckpt=../weights/outdoor_ds.ckpt
 
   # Optionally assign the GPU ID.

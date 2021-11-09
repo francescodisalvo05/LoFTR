@@ -55,76 +55,76 @@ def parse_args():
 
 
 def main():
-    # parse arguments
-    args = parse_args()
-    rank_zero_only(pprint.pprint)(vars(args))  # PL's decorator
+        # parse arguments
+        args = parse_args()
+        rank_zero_only(pprint.pprint)(vars(args))  # PL's decorator
 
-    # init default-cfg and merge it with the main- and data-cfg
-    config = get_cfg_defaults()  # it will get all the default params from src/config/default.py
-    config.merge_from_file(args.main_cfg_path)
-    config.merge_from_file(args.data_cfg_path)
-    pl.seed_everything(config.TRAINER.SEED)  # it gives the same seed to random generators
+        # init default-cfg and merge it with the main- and data-cfg
+        config = get_cfg_defaults()  # it will get all the default params from src/config/default.py
+        config.merge_from_file(args.main_cfg_path)
+        config.merge_from_file(args.data_cfg_path)
+        pl.seed_everything(config.TRAINER.SEED)  # it gives the same seed to random generators
 
-    # TODO: Use different seeds for each dataloader workers
-    # This is needed for data augmentation
+        # TODO: Use different seeds for each dataloader workers
+        # This is needed for data augmentation
 
-    # scale lr and warmup-step automatically
-    # deal with multiple GPUs
-    args.gpus = _n_gpus = setup_gpus(args.gpus)
-    config.TRAINER.WORLD_SIZE = _n_gpus * args.num_nodes
-    config.TRAINER.TRUE_BATCH_SIZE = config.TRAINER.WORLD_SIZE * args.batch_size
-    _scaling = config.TRAINER.TRUE_BATCH_SIZE / config.TRAINER.CANONICAL_BS
-    config.TRAINER.SCALING = _scaling
-    config.TRAINER.TRUE_LR = config.TRAINER.CANONICAL_LR * _scaling
-    config.TRAINER.WARMUP_STEP = math.floor(config.TRAINER.WARMUP_STEP / _scaling)
-    # lightning module
-    #
-    # Profiling means doing a dynamic analysis that measures the execution time of the program and
-    # everything that compose it.
+        # scale lr and warmup-step automatically
+        # deal with multiple GPUs
+        args.gpus = _n_gpus = setup_gpus(args.gpus)
+        config.TRAINER.WORLD_SIZE = _n_gpus * args.num_nodes
+        config.TRAINER.TRUE_BATCH_SIZE = config.TRAINER.WORLD_SIZE * args.batch_size
+        _scaling = config.TRAINER.TRUE_BATCH_SIZE / config.TRAINER.CANONICAL_BS
+        config.TRAINER.SCALING = _scaling
+        config.TRAINER.TRUE_LR = config.TRAINER.CANONICAL_LR * _scaling
+        config.TRAINER.WARMUP_STEP = math.floor(config.TRAINER.WARMUP_STEP / _scaling)
+        # lightning module
+        #
+        # Profiling means doing a dynamic analysis that measures the execution time of the program and
+        # everything that compose it.
 
-    profiler = build_profiler(args.profiler_name)
+        profiler = build_profiler(args.profiler_name)
+        model = PL_LoFTR(config, pretrained_ckpt=args.ckpt_path, profiler=profiler)
+        # notice that it is the "lightning" model
+        loguru_logger.info(f"LoFTR LightningModule initialized!")
 
-    # notice that it is the "lightning" model
-    loguru_logger.info(f"LoFTR LightningModule initialized!")
+        # lightning data - each training process have assgined only a part of the training scenes to reduce memory overhead.
+        data_module = MultiSceneDataModule(args, config)
+        loguru_logger.info(f"LoFTR DataModule initialized!")
 
-    # lightning data - each training process have assgined only a part of the training scenes to reduce memory overhead.
-    data_module = MultiSceneDataModule(args, config)
-    loguru_logger.info(f"LoFTR DataModule initialized!")
+        # TensorBoard Logger
+        logger = TensorBoardLogger(save_dir='logs/tb_logs', name=args.exp_name, default_hp_metric=False)
+        ckpt_dir = Path(logger.log_dir) / 'checkpoints'
 
-    # TensorBoard Logger
-    logger = TensorBoardLogger(save_dir='logs/tb_logs', name=args.exp_name, default_hp_metric=False)
-    ckpt_dir = Path(logger.log_dir) / 'checkpoints'
+        # Callbacks
+        # TODO: update ModelCheckpoint to monitor multiple metrics
+        # ModelCheckpoint is directly from PL
+        ckpt_callback = ModelCheckpoint(monitor='auc@10', verbose=True, save_top_k=5, mode='max',
+                                        save_last=True,
+                                        dirpath=str(ckpt_dir),
+                                        filename='{epoch}-{auc@5:.3f}-{auc@10:.3f}-{auc@20:.3f}')
+        lr_monitor = LearningRateMonitor(logging_interval='step')
+        callbacks = [lr_monitor]
+        if not args.disable_ckpt:
+            callbacks.append(ckpt_callback)
 
-    # Callbacks
-    # TODO: update ModelCheckpoint to monitor multiple metrics
-    # ModelCheckpoint is directly from PL
-    ckpt_callback = ModelCheckpoint(monitor='auc@10', verbose=True, save_top_k=5, mode='max',
-                                    save_last=True,
-                                    dirpath=str(ckpt_dir),
-                                    filename='{epoch}-{auc@5:.3f}-{auc@10:.3f}-{auc@20:.3f}')
-    lr_monitor = LearningRateMonitor(logging_interval='step')
-    callbacks = [lr_monitor]
-    if not args.disable_ckpt:
-        callbacks.append(ckpt_callback)
+        # Lightning Trainer
+        trainer = pl.Trainer.from_argparse_args(
+            args,
+            plugins=DDPPlugin(find_unused_parameters=False,
+                              num_nodes=args.num_nodes,
+                              sync_batchnorm=config.TRAINER.WORLD_SIZE > 0), # manage multi gpus
+            gradient_clip_val=config.TRAINER.GRADIENT_CLIPPING,
+            callbacks=callbacks, # array of callbacks
+            logger=logger,
+            sync_batchnorm=config.TRAINER.WORLD_SIZE > 0, # again, it is for more gpus
+            replace_sampler_ddp=False,  # use custom sampler
+            reload_dataloaders_every_epoch=False,  # avoid repeated samples!
+            weights_summary='full', # deprecated in v1.5 and will be removed in v1.7. Take care!
+            profiler=profiler) # profile individual steps during training
 
-    # Lightning Trainer
-    trainer = pl.Trainer.from_argparse_args(
-        args,
-        plugins=DDPPlugin(find_unused_parameters=False,
-                          num_nodes=args.num_nodes,
-                          sync_batchnorm=config.TRAINER.WORLD_SIZE > 0), # manage multi gpus
-        gradient_clip_val=config.TRAINER.GRADIENT_CLIPPING,
-        callbacks=callbacks, # array of callbacks
-        logger=logger,
-        sync_batchnorm=config.TRAINER.WORLD_SIZE > 0, # again, it is for more gpus
-        replace_sampler_ddp=False,  # use custom sampler
-        reload_dataloaders_every_epoch=False,  # avoid repeated samples!
-        weights_summary='full', # deprecated in v1.5 and will be removed in v1.7. Take care!
-        profiler=profiler) # profile individual steps during training
-
-    loguru_logger.info(f"Trainer initialized!")
-    loguru_logger.info(f"Start training!")
-    trainer.fit(model, datamodule=data_module)
+        loguru_logger.info(f"Trainer initialized!")
+        loguru_logger.info(f"Start training!")
+        trainer.fit(model, datamodule=data_module)
 
 
 if __name__ == '__main__':
